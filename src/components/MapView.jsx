@@ -1,162 +1,105 @@
-import React, { useState } from "react";
-import mapImage from "./../img/test12.svg";
-import { vertices, edges } from "./datas";
+import React, { useState, useMemo, useCallback } from "react";
+import dijkstra from "../lib/dijkstra";
+import calculateWeight from "../lib/weight";
+import Floor from "./Floor";
+import VertexForm from "./VertexForm";
 
-// Список айди вершин, которые не должны отображаться в select (при отображении маршрута), т.к. они яв-ся промежуточными
-const excludedVertexIds = [20, 30, 40, 50, 60, 70, 80, 90, 91];
+export default function MapView({ floors, initialStart = 0, initialEnd = 0 }) {
+  floors = useMemo(() => floors.map(({ edges, vertices, ...floor }) => ({
+    vertices: vertices.sort((v1, v2) => v1.id - v2.id),
+    edges: edges
+      .map(({ from, to }) => ({
+        from, to,
+        weight: calculateWeight(
+          ...[from, to].map(id => vertices.find(v => v.id === id))
+        )
+      }))
+      // Создаем обратные ребра для каждого ребра в графе (т.е. граф неориентированный)
+      .flatMap(edge => [
+        edge,
+        { from: edge.to, to: edge.from, weight: edge.weight }
+      ]),
+    ...floor
+  })), [floors]);
 
-// Создаем обратные ребра для каждого ребра в графе (т.е. граф неориентированный)
-const allEdges = edges.flatMap(edge => [
-  edge,
-  { from: edge.to, to: edge.from, weight: edge.weight } 
-]);
+  const [startFloor, setStartFloor] = useState(0);
+  const [endFloor, setEndFloor] = useState(0);
+  const [startVertex, setStartVertex] = useState(initialStart);
+  const [endVertex, setEndVertex] = useState(initialEnd);
+  const [startFloorPath, setStartFloorPath] = useState([]);
+  const [endFloorPath, setEndFloorPath] = useState([]);
 
-const MapView = () => {
-  const [startVertex, setStartVertex] = useState(100);
-  const [endVertex, setEndVertex] = useState(177);
-  const [path, setPath] = useState([]);
+  const [
+    updateStartFloor, updateEndFloor,
+    updateStartVertex, updateEndVertex
+  ] = useMemo(() => [
+    setStartFloor, setEndFloor,
+    setStartVertex, setEndVertex
+  ].map(set => value => {
+    set(value);
+    setStartFloorPath([]);
+    setEndFloorPath([]);
+  }), []);
 
-  const dijkstra = (start, end) => {
-    const distances = {};
-    const previous = {}; // Для восстановления пути
-    const queue = new Set(vertices.map(v => v.id));
-  
-    vertices.forEach(v => {
-      distances[v.id] = Infinity;
-      previous[v.id] = null;
-    });
-  
-    distances[start] = 0;
-  
-    while (queue.size > 0) {
-      // Находим вершину с минимальным расстоянием
-      const minVertex = Array.from(queue).reduce((min, vertex) => 
-        distances[vertex] < distances[min] ? vertex : min, Array.from(queue)[0]);
-  
-      if (minVertex === end) {
-        const path = [];
-        let current = end;
-        while (current !== null) {
-          path.unshift(current);
-          current = previous[current];
-        }
-        return path;
-      }
-  
-      queue.delete(minVertex);
-  
-      allEdges.forEach(edge => {
-        if (edge.from === minVertex && queue.has(edge.to)) {
-          const alt = distances[minVertex] + edge.weight;
-          if (alt < distances[edge.to]) {
-            distances[edge.to] = alt;
-            previous[edge.to] = minVertex;
-          }
-        }
-      });
-    }
-  
-    return [];
-  };
-  
-
-  const handleFindPath = () => {
-    const foundPath = dijkstra(startVertex, endVertex);
-    setPath(foundPath);
-  };
-
-  const renderVertices = () => {
-    return vertices
-      .filter(vertex => {
-        // Отображаем только те вершины, которые либо начальная, либо конечная, либо входят в путь
-        return vertex.id === startVertex || vertex.id === endVertex || path.includes(vertex.id);
-      })
-      .map(vertex => (
-        <circle
-          key={vertex.id}
-          cx={vertex.x}
-          cy={vertex.y}
-          r="1"
-          fill="red"
-          opacity={vertex.id === startVertex || vertex.id === endVertex ? "1" : "0"}
-        />
+  const findPath = useCallback(() => {
+    if (startFloor === endFloor) {
+      const path = dijkstra(
+        floors[startFloor].vertices,
+        floors[startFloor].edges,
+        startVertex,
+        endVertex
+      );
+      setStartFloorPath(path);
+      setEndFloorPath([]);
+    } else {
+      setStartFloorPath(dijkstra(
+        floors[startFloor].vertices,
+        floors[startFloor].edges,
+        startVertex,
+        floors[startFloor].elevatorId
       ));
-  };
-  
-  const renderEdges = () => {
-    return allEdges
-      .filter(edge => {
-        // Отображаем рёбра только если они полностью принадлежат пути
-        return path.includes(edge.from) && path.includes(edge.to);
-      })
-      .map((edge, index) => {
-        const fromVertex = vertices.find(v => v.id === edge.from);
-        const toVertex = vertices.find(v => v.id === edge.to);
-        if (!fromVertex || !toVertex) {
-          console.error(`Vertex not found for edge: ${edge.from} -> ${edge.to}`);
-          return null; 
-        }
-        return (
-          <line
-            key={index}
-            x1={fromVertex.x}
-            y1={fromVertex.y}
-            x2={toVertex.x}
-            y2={toVertex.y}
-            stroke="black"
-            strokeWidth="0.5"
-            opacity="1"
-          />
-        );
-      }).filter(edge => edge !== null); // Убираем null значения
-  };
-  
-  
+      setEndFloorPath(dijkstra(
+        floors[endFloor].vertices,
+        floors[endFloor].edges,
+        floors[endFloor].elevatorId,
+        endVertex
+      ));
+    }
+  }, [floors, startFloor, startVertex, endFloor, endVertex]);
 
   return (
     <div className="container">
       <div className="wrapper">
-        <div style={{ position: 'relative' }}>
-          <img src={mapImage} alt="Map" style={{ width: 'auto', height: 'auto' }} />
-          <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
-            {renderEdges()}
-            {renderVertices()}
-          </svg>
+        <div className="floors">
+          <Floor
+            key={startFloor}
+            startVertex={startVertex}
+            endVertex={startFloor === endFloor ? endVertex : undefined}
+            path={startFloorPath}
+            {...floors[startFloor]}
+          />
+          {startFloor !== endFloor && <Floor
+            key={endFloor}
+            endVertex={endVertex}
+            path={endFloorPath}
+            {...floors[endFloor]}
+          />}
         </div>
-        <div className="form">
-          <h3 className="form_label">Выберите стартовую и конечную точку</h3>
-          <label className="startVertex" htmlFor="startVertex">Стартовая точка:</label>
-          <select
-            className="startVertexInput"
-            id="startVertex"
-            value={startVertex}
-            onChange={(e) => setStartVertex(parseInt(e.target.value))}
-          >
-            {vertices.filter(vertex => !excludedVertexIds.includes(vertex.id)).map(vertex => (
-              <option key={vertex.id} value={vertex.id}>
-                {vertex.id}
-              </option>
-            ))}
-          </select>
-          <br />
-          <label className="endVertex" htmlFor="endVertex">Конечная точка:</label>
-          <select
-            className="endVertexInput"
-            id="endVertex"
-            value={endVertex}
-            onChange={(e) => setEndVertex(parseInt(e.target.value))}
-          >
-            {vertices.filter(vertex => !excludedVertexIds.includes(vertex.id)).map(vertex => (
-              <option key={vertex.id} value={vertex.id}>
-                {vertex.id}
-              </option>
-            ))}
-          </select>
-          <button className="form_btn" onClick={handleFindPath}>Найти</button>
-        </div>
+        <VertexForm
+          setStartFloor={updateStartFloor}
+          setEndFloor={updateEndFloor}
+          setStartVertex={updateStartVertex}
+          setEndVertex={updateEndVertex}
+          {...{
+            floors,
+            startFloor,
+            endFloor,
+            startVertex,
+            endVertex,
+            findPath
+          }}
+        />
       </div>
     </div>
   );
 };
-
-export default MapView;
