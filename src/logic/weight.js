@@ -8,11 +8,11 @@ export default function calculateWeight({x: x1, y: y1}, {x: x2, y: y2}) {
 export function calculateWeights(weight, tags = new Set()) {
 	return {
 		distance: weight / 4,
-		steps: Math.round(weight * (
+		steps: weight * (
 			tags.has('elevator') ? 0 :
 			tags.has('ladder') ? 2 :
 			.75
-		)),
+		),
 		time: weight / (
 			tags.has('elevator') ? 1 :
 			tags.has('ladder') ? 2 :
